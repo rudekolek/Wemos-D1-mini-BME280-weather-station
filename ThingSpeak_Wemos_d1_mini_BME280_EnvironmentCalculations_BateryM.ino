@@ -106,6 +106,7 @@ float volt=0.000;
 
 void setup() {
   Serial.begin(SERIAL_BAUD);  // Initialize serial
+  Serial.setDebugOutput(true); //Debug mode active
 
   delay(500);
   
@@ -157,13 +158,15 @@ void loop() {
       Serial.print(".");
       delay(5000);     
     } 
-    Serial.println("\nConnected.");
+    Serial.printf("Connection status: %d\n", WiFi.status());
+    Serial.print("Connected, IP address: ");
+    Serial.println(WiFi.localIP());
   }
 
   // Writing to BME280 data to serial
   {
    printBME280Data(&Serial);
-   delay(100);
+   delay(0);
   }
   
   {
@@ -256,14 +259,11 @@ void printBatMonData
 
 {
 // put your setup code here, to run once:
- a0read = analogRead(A0);
- volt = (a0read/1023.0) * 5.265; // 5.265 Empiric number of Voltage
- client->print("Battery Voltage: ");
- client->print(volt);
- client->print("V\t\t");
- client->print(a0read);
- client->print("\n");
+  a0read = analogRead(A0);
+  volt = (a0read/1023.0) * 5.265; // 5.265 Empiric number of Voltage
+  client->print("Battery Voltage: ");
+  client->print(volt);
+  client->print("V\t\t");
+  client->print(a0read);
+  client->print("\n");
 }
-  
-
- 
