@@ -134,7 +134,7 @@ void connectWifiIfNotConnected(unsigned long timeoutMs = 60000) { //Connect to W
   uint8_t startAt = millis();
   Serial.print("Attempting to connect to SSID: ");
   Serial.println(SECRET_SSID);
-  Serial.printf("\nConnecting to WiFi...\t\tConnection status: %d\n", WiFi.status());
+  Serial.printf("Connecting to WiFi...\t\tConnection status: %d\n", WiFi.status());
   //Serial.println("Connecting to WiFi..." + String(WiFi.status()));
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
