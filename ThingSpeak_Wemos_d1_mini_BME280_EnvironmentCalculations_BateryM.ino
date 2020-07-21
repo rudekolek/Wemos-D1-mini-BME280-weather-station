@@ -53,35 +53,92 @@ SCK (Serial Clock)  ->  A5 on Uno/Pro-Mini, 21 on Mega2560/Due, 3 Leonardo/Pro-M
  * Max input on A0=1Volt ->1023
  * 4.2*(Raw/1023)=Vbat
  */
+ 
+#include <Wire.h>
+#include <BME280I2C.h>
 
-// EnvironmentCalculations
+#include <ESP8266WiFi.h>
+
+#include "ThingSpeak.h"
+#include "secrets.h" // file with WIFI and ThingSpeak credentials
+
 #include <EnvironmentCalculations.h>
 
+// ThingSpeak Initialize our values
+unsigned long myChannelNumber = SECRET_CH_ID;
+const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
+
+// WIFI definition
+char ssid[] = SECRET_SSID;   // your network SSID (name) 
+char pass[] = SECRET_PASS;   // your network password
+int keyIndex = 0;            // your network key Index number (needed only for WEP)
+WiFiClient  client;
+
+//BME280 settings
+BME280I2C bme;    // Default : forced mode, standby time = 1000 ms
+                  // Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
+
+BME280::TempUnit tempUnit(BME280::TempUnit_Celsius); // set the fields with the values
+BME280::PresUnit presUnit(BME280::PresUnit_Pa); // set the fields with the values
+
+float temp(NAN), hum(NAN), pres(NAN); // Definition of BME280 data
+
+// EnvironmentCalculations
 EnvironmentCalculations::AltitudeUnit envAltUnit  =  EnvironmentCalculations::AltitudeUnit_Meters;
 EnvironmentCalculations::TempUnit envTempUnit =  EnvironmentCalculations::TempUnit_Celsius;
 float seaLevel = 0.00;
 float dewPoint = 0.00;
 float absoluteHumidity = 0.00;
-float altitude = 104; //Meteostation elevation in meters
+float altitude = 104; //Meteo station elevation in meters
+                  
+// Serial  definition
+#define SERIAL_BAUD 115200 //Set serial speed
+
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
+  pinMode(A0, INPUT); //Analog PIN input for batery monitor via 220 Ohm
+  Wire.begin(4,5); // Connect I2C devices to SCL(GPIO5), SDA(GPIO4)
+
+  WiFi.mode(WIFI_STA);
+   
+  Serial.begin(SERIAL_BAUD);  // Initialize serial
+  //Serial.setDebugOutput(true); //Debug mode active
+  delay(100);
+
+  while(!Serial) {} // Wait for serial begin
+
+  Serial.println("\nESP8266 in normal mode\n");
+
+  while(!bme.begin()) {
+  // Print BME280 sensor status to serial
+    Serial.println("Could not find BME280 sensor!");
+    delay(1000);
+  }
+  // bme.chipID(); // Deprecated. See chipModel().
+  switch(bme.chipModel()) {
+     case BME280::ChipModel_BME280:
+       Serial.println("Found BME280 sensor! Success.");
+       delay(1000);
+       break;
+     case BME280::ChipModel_BMP280:
+       Serial.println("Found BMP280 sensor! No Humidity available.");
+       delay(1000);
+       break;
+     default:
+       Serial.println("Found UNKNOWN sensor! Error!");
+  }
+  
+  ThingSpeak.begin(client);  // Initialize ThingSpeak
+}
+
 
 // BME280
-#include <BME280I2C.h>
-#include <Wire.h>
-
-BME280I2C bme;    // Default : forced mode, standby time = 1000 ms
-                  // Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
-
-// set the fields with the values
-BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
-BME280::PresUnit presUnit(BME280::PresUnit_Pa);
-
-float temp(NAN), hum(NAN), pres(NAN); // Definition of BME280 data
-
 void printBME280Data(Stream* client) { // BME 280 data dealing
    bme.read(pres, temp, hum, tempUnit, presUnit);
    
    //seaLevel = EnvironmentCalculations::SealevelAlitude(altitude, temp, pres); // Deprecated. See EquivalentSeaLevelPressure().
-   seaLevel = EnvironmentCalculations::EquivalentSeaLevelPressure(altitude, temp, pres);
+   seaLevel = EnvironmentCalculations::EquivalentSeaLevelPressure(altitude, temp, pres) / 100;
    dewPoint = EnvironmentCalculations::DewPoint(temp, hum, envTempUnit);
    absoluteHumidity = EnvironmentCalculations::AbsoluteHumidity(temp, hum, envTempUnit);
    
@@ -96,7 +153,7 @@ void printBME280Data(Stream* client) { // BME 280 data dealing
    client->print("g/m³\n");
    
    client->print("Pressure: ");
-   client->print(pres);
+   client->print(pres / 100);
    client->print(String( presUnit == BME280::PresUnit_hPa ? "hPa" :"Pa")); // expected hPa and Pa only
    client->print("\t\tEquivalent Sea Level Pressure: ");
    client->print(seaLevel);
@@ -105,27 +162,26 @@ void printBME280Data(Stream* client) { // BME 280 data dealing
    client->print("Dew point: ");
    client->print(dewPoint);
    client->print("°"+ String(tempUnit == BME280::TempUnit_Celsius ? 'C' :'F') +"\n");
-
-   delay(0);
 }
 
 
-// ThingSpeak
-#include "ThingSpeak.h"
-#include "secrets.h" // file with WIFI and ThingSpeak credentials
+// Battery Monitor
+unsigned int a0read=0;
+float volt=0.000;
 
-// Initialize our values
-unsigned long myChannelNumber = SECRET_CH_ID;
-const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
+void printBatMonData(Stream* client) { //Battery voltage calculation and print
+  a0read = analogRead(A0);
+  delay(100);
+  volt = (a0read/1023.0) * 5.265; // 5.265 Empiric number of Voltage
+  client->print("Battery Voltage: ");
+  client->print(volt);
+  client->print("V\t\t");
+  client->print(a0read);
+  client->print("\n");
+}
 
-// WIFI 
-#include <ESP8266WiFi.h>
 
-char ssid[] = SECRET_SSID;   // your network SSID (name) 
-char pass[] = SECRET_PASS;   // your network password
-int keyIndex = 0;            // your network key Index number (needed only for WEP)
-WiFiClient  client;
-
+//WIFI
 void connectWifiIfNotConnected(unsigned long timeoutMs = 60000) { //Connect to WiFi, if not possible go to sleep for a while to not drain battery.
   if (WiFi.status() == WL_CONNECTED) {
     return;
@@ -140,69 +196,16 @@ void connectWifiIfNotConnected(unsigned long timeoutMs = 60000) { //Connect to W
     Serial.print(".");
 //If WIFI faild break go to sleep try again after wakeup.
     if (millis() - startAt > timeoutMs) {
-      Serial.println("Cannot connect to WiFi");
+      Serial.println("\nCannot connect to WiFi");
+      Serial.println("ESP8266 in sleep mode\n");
       ESP.deepSleep(60e6);
       //break;    
     } 
     delay(5000); 
   }
    Serial.print("\nConnected, IP address: ");
-   Serial.println(WiFi.localIP());
+   Serial.println(WiFi.localIP()); 
  }
-
-
-// Battery Monitor
-unsigned int a0read=0;
-float volt=0.000;
-
-void printBatMonData(Stream* client) { //Battery voltage calculation and print
-  a0read = analogRead(A0);
-  volt = (a0read/1023.0) * 5.265; // 5.265 Empiric number of Voltage
-  client->print("Battery Voltage: ");
-  client->print(volt);
-  client->print("V\t\t");
-  client->print(a0read);
-  client->print("\n");
-}
-
-// Serial  definition
-#define SERIAL_BAUD 115200 //Set serial speed
-
-
-void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
-  pinMode(A0, INPUT); //Analog PIN input for batery monitor via 220 Ohm
-  Wire.begin(4,5); // Connect I2C devices to SCL(GPIO5), SDA(GPIO4)
-
-  WiFi.mode(WIFI_STA);
-   
-  Serial.begin(SERIAL_BAUD);  // Initialize serial
-  //Serial.setDebugOutput(true); //Debug mode active
-  delay(0);
-
-  while(!Serial) {} // Wait for serial begin
-
-  Serial.println("\nESP8266 in normal mode\n");
-
-  while(!bme.begin()) {
-  // Print BME280 sensor status to serial
-    Serial.println("Could not find BME280 sensor!");
-    delay(0);
-  }
-  // bme.chipID(); // Deprecated. See chipModel().
-  switch(bme.chipModel()) {
-     case BME280::ChipModel_BME280:
-       Serial.println("Found BME280 sensor! Success.");
-       break;
-     case BME280::ChipModel_BMP280:
-       Serial.println("Found BMP280 sensor! No Humidity available.");
-       break;
-     default:
-       Serial.println("Found UNKNOWN sensor! Error!");
-  }
-  
-  ThingSpeak.begin(client);  // Initialize ThingSpeak
-}
 
 
 void loop() {
@@ -210,28 +213,29 @@ void loop() {
   // Connect to WiFi, if not possible go to sleep for a while to not drain battery.
   {
   connectWifiIfNotConnected();
-  delay(0);
+  delay(100);
   }
   
   // Writing BME280 data to serial
   {
    printBME280Data(&Serial);
-   delay(0);
+   delay(100);
   }
 
   //Writing Battery Voltage to serial
   {
   printBatMonData(&Serial);
-  delay(0);
+  delay(100);
   }
-
+  
   // ThingSpeak flow
-  ThingSpeak.setField(1, temp);
-  ThingSpeak.setField(2, hum);
-  ThingSpeak.setField(3, pres);
-  ThingSpeak.setField(4, seaLevel);
-  ThingSpeak.setField(5, dewPoint);
-  ThingSpeak.setField(6, absoluteHumidity);
+  
+  ThingSpeak.setField(1, int(temp));
+  ThingSpeak.setField(2, int(hum));
+  ThingSpeak.setField(3, int(pres) / 100);
+  ThingSpeak.setField(4, int(seaLevel));
+  ThingSpeak.setField(5, int(dewPoint));
+  ThingSpeak.setField(6, int(absoluteHumidity));
   ThingSpeak.setField(7, volt);
   
   // set the status
@@ -255,9 +259,9 @@ void loop() {
   //delay(0);                      // Wait for two seconds (to demonstrate the active low LED)
   //}
   
-  //Sleep
-  delay(0); // Wait 60 seconds to update the channel again
+  //delay(0); // Wait 60 seconds to update the channel again 
   
+  //Sleep
   Serial.println("ESP8266 in sleep mode\n");
   ESP.deepSleep(300e6); // 5 minutes sleep   
 }
